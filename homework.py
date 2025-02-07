@@ -1,6 +1,8 @@
 import os
 import time
 import logging
+from http import HTTPStatus
+
 import requests
 from dotenv import load_dotenv
 from telebot import TeleBot
@@ -22,7 +24,6 @@ HOMEWORK_VERDICTS = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-
 # Настройка логирования
 logging.basicConfig(
     level=logging.DEBUG,
@@ -31,11 +32,37 @@ logging.basicConfig(
 )
 
 
+# Определение собственных исключений
+class APIError(Exception):
+    """Исключение для ошибок API."""
+    pass
+
+
+class RequestError(Exception):
+    """Исключение для ошибок запроса."""
+    pass
+
+
 def check_tokens():
     """Проверяет доступность переменных окружения."""
-    if not all([PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]):
-        logging.critical('Отсутствует обязательная переменная окружения.')
+    tokens = {
+        'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
+        'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
+        'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID
+    }
+
+    missing_tokens = [
+        token for token, value in tokens.items() if not value
+    ]
+
+    if missing_tokens:
+        missing_tokens_message = (
+            'Отсутствуют обязательные переменные окружения: '
+            f'{", ".join(missing_tokens)}.'
+        )
+        logging.critical(missing_tokens_message)
         return False
+
     return True
 
 
@@ -53,13 +80,19 @@ def get_api_answer(timestamp):
     payload = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=payload)
-        if response.status_code != 200:
+        if response.status_code != HTTPStatus.OK:
             logging.error(f'Ошибка: API вернул код {response.status_code}')
-            raise Exception(f'Ошибка: API вернул код {response.status_code}')
-        return response.json()
+            raise APIError(f'Ошибка: API вернул код {response.status_code}')
+
+        try:
+            return response.json()
+        except ValueError as json_error:
+            logging.error(f'Ошибка при декодировании JSON: {json_error}')
+            raise APIError('Ошибка при декодировании JSON.')
+
     except requests.exceptions.RequestException as e:
         logging.error(f'Ошибка при запросе к API: {e}')
-        return None
+        raise RequestError(f'Ошибка при запросе к API: {e}')
 
 
 def check_response(response):
@@ -104,6 +137,7 @@ def main():
 
     bot = TeleBot(TELEGRAM_TOKEN)
     timestamp = int(time.time())
+    sent_messages = set()
 
     while True:
         try:
@@ -116,7 +150,11 @@ def main():
             if homeworks:
                 for homework in homeworks:
                     message = parse_status(homework)
-                    send_message(bot, message)
+                    if message not in sent_messages:
+                        send_message(bot, message)
+                        sent_messages.add(message)
+                    else:
+                        logging.debug(f'Сообщение уже отправлено: "{message}"')
             else:
                 logging.debug('Нет новых статусов.')
 
