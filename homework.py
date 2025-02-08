@@ -77,7 +77,7 @@ def get_api_answer(timestamp):
         return response.json()
     except requests.RequestException as e:
         raise RequestError(f'Ошибка при запросе к API: {e}')
-    except ValueError as json_error:
+    except ValueError:
         raise APIError('Ошибка при декодировании JSON.')
 
 
