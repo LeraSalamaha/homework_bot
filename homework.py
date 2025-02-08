@@ -7,6 +7,8 @@ import requests
 from dotenv import load_dotenv
 from telebot import TeleBot
 
+from exceptions import APIError, RequestError
+
 # Загружаем переменные окружения
 load_dotenv()
 
@@ -30,20 +32,6 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[logging.StreamHandler()]
 )
-
-
-# Определение собственных исключений
-
-class APIError(Exception):
-    """Исключение для ошибок API."""
-
-    pass
-
-
-class RequestError(Exception):
-    """Исключение для ошибок запроса."""
-
-    pass
 
 
 def check_tokens():
@@ -84,18 +72,13 @@ def get_api_answer(timestamp):
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=payload)
         if response.status_code != HTTPStatus.OK:
-            logging.error(f'Ошибка: API вернул код {response.status_code}')
             raise APIError(f'Ошибка: API вернул код {response.status_code}')
 
-        try:
-            return response.json()
-        except ValueError as json_error:
-            logging.error(f'Ошибка при декодировании JSON: {json_error}')
-            raise APIError('Ошибка при декодировании JSON.')
-
-    except requests.exceptions.RequestException as e:
-        logging.error(f'Ошибка при запросе к API: {e}')
+        return response.json()
+    except requests.RequestException as e:
         raise RequestError(f'Ошибка при запросе к API: {e}')
+    except ValueError as json_error:
+        raise APIError('Ошибка при декодировании JSON.')
 
 
 def check_response(response):
@@ -164,6 +147,11 @@ def main():
             timestamp = response['current_date']
             time.sleep(RETRY_PERIOD)
 
+        except (APIError, RequestError) as error:
+            message = f'Ошибка при получении данных из API: {error}'
+            logging.error(message)
+            send_message(bot, message)
+            time.sleep(RETRY_PERIOD)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             send_message(bot, message)
