@@ -84,15 +84,12 @@ def get_api_answer(timestamp):
 def check_response(response):
     """Проверяет ответ API на наличие ожидаемых ключей."""
     if not isinstance(response, dict):
-        logging.error('Ответ API не является словарем.')
         raise TypeError('Ответ API не является словарем.')
 
     if 'homeworks' not in response or 'current_date' not in response:
-        logging.error('Отсутствуют ожидаемые ключи в ответе API.')
         raise KeyError('Отсутствуют ожидаемые ключи в ответе API.')
 
     if not isinstance(response['homeworks'], list):
-        logging.error('Ключ `homeworks` должен содержать список.')
         raise TypeError('Ключ `homeworks` должен содержать список.')
 
     return response['homeworks']
@@ -107,7 +104,6 @@ def parse_status(homework):
     status = homework.get('status')
 
     if status not in HOMEWORK_VERDICTS:
-        logging.error(f'Неожиданный статус домашней работы: {status}')
         raise ValueError(f'Неожиданный статус: {status}')
 
     return (
@@ -133,30 +129,49 @@ def main():
                 continue
 
             homeworks = check_response(response)
-            if homeworks:
-                for homework in homeworks:
-                    message = parse_status(homework)
-                    if message not in sent_messages:
-                        send_message(bot, message)
-                        sent_messages.add(message)
-                    else:
-                        logging.debug(f'Сообщение уже отправлено: "{message}"')
-            else:
-                logging.debug('Нет новых статусов.')
+            process_homeworks(homeworks, bot, sent_messages)
 
             timestamp = response['current_date']
             time.sleep(RETRY_PERIOD)
 
         except (APIError, RequestError) as error:
-            message = f'Ошибка при получении данных из API: {error}'
-            logging.error(message)
-            send_message(bot, message)
+            handle_api_error(error, bot)
             time.sleep(RETRY_PERIOD)
         except Exception as error:
-            message = f'Сбой в работе программы: {error}'
-            send_message(bot, message)
-            logging.error(message)
+            handle_general_error(error, bot)
             time.sleep(RETRY_PERIOD)
+
+
+def process_homeworks(homeworks, bot, sent_messages):
+    """Обрабатывает список домашних работ и отправляет сообщения."""
+    if homeworks:
+        for homework in homeworks:
+            try:
+                message = parse_status(homework)
+                if message not in sent_messages:
+                    send_message(bot, message)
+                    sent_messages.add(message)
+                else:
+                    log_message = f'Сообщение уже отправлено: "{message}"'
+                    logging.debug(log_message)
+            except ValueError as error:
+                logging.error(error)
+    else:
+        logging.debug('Нет новых статусов.')
+
+
+def handle_api_error(error, bot):
+    """Обрабатывает ошибки, связанные с API."""
+    message = f'Ошибка при получении данных из API: {error}'
+    logging.error(message)
+    send_message(bot, message)
+
+
+def handle_general_error(error, bot):
+    """Обрабатывает общие ошибки программы."""
+    message = f'Сбой в работе программы: {error}'
+    send_message(bot, message)
+    logging.error(message)
 
 
 if __name__ == '__main__':
